@@ -1,0 +1,20 @@
+{
+  "name": "orbit",
+  "private": true,
+  "packageManager": "pnpm@12.16.1",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "pnpm --parallel -r run dev",
+    "dev:web": "pnpm --filter @orbit/web dev",
+    "dev:realtime": "pnpm --filter @orbit/realtime dev",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint",
+    "db:dev": "pnpm --filter @orbit/db db:dev",
+    "db:generate": "pnpm --filter @orbit/db db:generate",
+    "db:migrate": "pnpm --filter @orbit/db db:migrate",
+    "db:deploy": "pnpm --filter @orbit/db db:deploy",
+    "db:studio": "pnpm --filter @orbit/db db:studio"
+  }
+}

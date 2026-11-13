@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+  GUEST
+}
+
+enum PresenceStatus {
+  ONLINE
+  AWAY
+  BUSY
+  OFFLINE
+}
+
+enum Plan {
+  FREE
+  PRO
+  BUSINESS
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+/// A person. Global (not tenant-scoped): one user can belong to many workspaces.
+model User {
+  id         String         @id @default(cuid())
+  clerkId    String         @unique
+  email      String         @unique
+  name       String
+  imageUrl   String?
+  presence   PresenceStatus @default(OFFLINE)
+  statusText String?
+  lastSeenAt DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  memberships Membership[]
+  invitesSent Invitation[]
+}
+
+/// A tenant. Mirrors a Clerk organization.
+model Workspace {
+  id         String   @id @default(cuid())
+  clerkOrgId String   @unique
+  name       String
+  slug       String   @unique
+  imageUrl   String?
+  plan       Plan     @default(FREE)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  memberships Membership[]
+  invitations Invitation[]
+}
+
+/// Tenant-scoped: every query must filter on workspaceId (see src/tenant.ts).
+model Membership {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  userId            String
+  role              Role     @default(MEMBER)
+  clerkMembershipId String?  @unique
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+/// Tenant-scoped.
+model Invitation {
+  id                String           @id @default(cuid())
+  workspaceId       String
+  email             String
+  role              Role             @default(MEMBER)
+  status            InvitationStatus @default(PENDING)
+  clerkInvitationId String?          @unique
+  invitedById       String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User?     @relation(fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, status])
+  @@index([email])
+}

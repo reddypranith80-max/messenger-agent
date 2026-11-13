@@ -1,0 +1,16 @@
+packages:
+  - apps/*
+  - packages/*
+allowBuilds:
+  '@clerk/shared': true
+  '@prisma/engines': true
+  esbuild: true
+  prisma: true
+  sharp: true
+minimumReleaseAgeExclude:
+  - '@clerk/backend@3.28.0'
+  - '@clerk/nextjs@7.9.26'
+  - '@clerk/react@6.18.7'
+  - '@clerk/shared@4.45.0'
+  - framer-motion@14.14.0
+  - motion-dom@14.14.0
