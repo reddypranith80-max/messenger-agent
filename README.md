@@ -4,8 +4,16 @@
 
 Team messenger and meetings SaaS. The product brief, stack and build phases are in [CLAUDE.md](CLAUDE.md).
 
-**Status: phase 1 of 8.** Monorepo, database schema, Clerk auth, workspaces with roles, the app shell and the
-design system are in place. Chat, calls, meetings, notifications, integrations and billing are placeholder pages.
+**Status: phases 1 to 4 of 8, plus the in-app half of phase 5.**
+
+| Area | State |
+| --- | --- |
+| Accounts, workspaces, roles, invitations | Working. Rename, leave and delete a workspace from Settings. |
+| Chat | Working: channels, direct and group messages, threads, reactions, mentions, edit and delete, typing, read receipts, unread counts, message search. |
+| Calls | Working once LiveKit keys are set (see below): 1:1 and group audio/video, screen share, device picker, in-call chat, raise hand, call history. |
+| Meetings | Working: schedule, invite, join link, lobby, calendar. Email invitations and reminders go out once a Resend key is set. |
+| Activity | Working in the app: mentions, replies and invitations, with a live banner and an unread badge. |
+| Not built yet | File attachments, browser push and email digest, recording, calendar sync, webhooks and API tokens, billing, audit log. |
 
 ## Layout
 
@@ -55,14 +63,21 @@ Git, and a free [Clerk](https://dashboard.clerk.com) account.
 
 6. Open <http://localhost:3000>, sign up, and create a workspace. The realtime service runs on port 4000.
 
-The other variables in `.env.example` (LiveKit, Resend, R2, Stripe, Redis) belong to later phases and can stay
-as placeholders for now.
-
-Minimum `.env` for phase 1:
+Minimum `.env` to run the app:
 
 - `DATABASE_URL`: the URL printed by `pnpm db:dev`, or a Neon/Supabase connection string.
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`: from the Clerk dashboard (API keys). The app
   returns an error on every page until these are set.
+
+Needed for specific features. Without them the rest of the app still works and the feature says what is missing:
+
+- **Calls and meeting rooms**: `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET`. Create a free project at
+  <https://cloud.livekit.io>, open its Settings → Keys, and copy the three values. Restart `pnpm dev` afterwards.
+- **Meeting emails** (invitations and the ten-minute reminder): `RESEND_API_KEY` and `EMAIL_FROM` from
+  <https://resend.com>. Without them, invitees still see the meeting and its reminder inside the app.
+- **More than one realtime instance**: `REDIS_URL`. A single local instance does not need it.
+
+The R2 and Stripe variables in `.env.example` belong to features that are not built yet and can stay as placeholders.
 
 ### Clerk settings
 
@@ -96,7 +111,12 @@ In the Clerk dashboard for the application:
 - `requireWorkspace(slug)` (`apps/web/src/server/context.ts`) resolves the workspace from the URL, proves the
   signed-in user is a member, and hands back the scoped client. Non-members get a 404.
 - The realtime service verifies the Clerk token and the membership at connect time and derives room names from
-  that identity, never from client input.
+  that identity, never from client input. Every 30 seconds it disconnects sockets whose membership has ended.
+- Chat, meeting, call-history, activity and search functions (`packages/db/src/chat.ts`, `meetings.ts`,
+  `activity.ts`) take the scoped client and check the acting user themselves: you only ever get conversations
+  you are in and meetings you host or are invited to.
+- A LiveKit token is issued only after the same checks, for a room named after the workspace and the
+  conversation or meeting, so a token for one tenant's room cannot be minted through another tenant.
 
 ## Roles
 

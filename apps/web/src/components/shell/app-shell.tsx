@@ -2,8 +2,9 @@
 
 import { ActivePill, Avatar, cn, type Presence } from "@orbit/ui";
 import Link from "next/link";
-import { useSelectedLayoutSegment } from "next/navigation";
+import { usePathname, useSelectedLayoutSegment } from "next/navigation";
 import type { ReactNode } from "react";
+import { useOptionalRealtime } from "@/components/chat/realtime-provider";
 import { NAV_ITEMS } from "./nav";
 import { WorkspaceSwitcher, type SwitcherWorkspace } from "./workspace-switcher";
 
@@ -22,6 +23,23 @@ type AppShellProps = {
 export function AppShell({ slug, workspace, workspaces, user, children }: AppShellProps) {
   const active = useSelectedLayoutSegment() ?? "chat";
   const base = `/w/${slug}`;
+  const realtime = useOptionalRealtime();
+  const counts: Record<string, { n: number; what: string }> = {
+    chat: { n: realtime?.totalUnread ?? 0, what: "unread messages" },
+    activity: { n: realtime?.activityUnread ?? 0, what: "new notifications" },
+  };
+  const pathname = usePathname();
+  // Inside a conversation on a phone the composer needs the bottom edge.
+  const inConversation = active === "chat" && pathname.split("/").filter(Boolean).length >= 4;
+  const badge = (segment: string) => {
+    const count = counts[segment];
+    if (!count || count.n <= 0) return null;
+    return (
+      <span className="absolute top-1 right-2.5 flex min-w-4.5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground" aria-label={`${count.n} ${count.what}`}>
+        {count.n > 99 ? "99+" : count.n}
+      </span>
+    );
+  };
 
   return (
     <div className="flex h-dvh overflow-hidden">
@@ -51,6 +69,7 @@ export function AppShell({ slug, workspace, workspaces, user, children }: AppShe
                 {isActive ? <ActivePill layoutId="rail-pill" className="rounded-2xl bg-card shadow-card" /> : null}
                 <Icon className="size-[22px]" strokeWidth={isActive ? 2.4 : 2} />
                 {label}
+                {badge(segment)}
               </Link>
             );
           })}
@@ -71,7 +90,7 @@ export function AppShell({ slug, workspace, workspaces, user, children }: AppShe
       {/* Mobile bottom navigation, within thumb reach */}
       <nav
         aria-label="Main"
-        className="fixed inset-x-0 bottom-0 z-30 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:hidden"
+        className={cn("fixed inset-x-0 bottom-0 z-30 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:hidden", inConversation && "hidden")}
       >
         <div className="mx-auto flex max-w-md items-stretch justify-between rounded-[28px] bg-card/90 p-1.5 shadow-float backdrop-blur-xl">
           {NAV_ITEMS.map(({ segment, label, icon: Icon }) => {
@@ -89,6 +108,7 @@ export function AppShell({ slug, workspace, workspaces, user, children }: AppShe
                 {isActive ? <ActivePill layoutId="tab-pill" className="rounded-[22px] bg-secondary" /> : null}
                 <Icon className="size-[22px]" strokeWidth={isActive ? 2.4 : 2} />
                 <span className="truncate">{label}</span>
+                {badge(segment)}
               </Link>
             );
           })}

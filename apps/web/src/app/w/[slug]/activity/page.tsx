@@ -1,32 +1,30 @@
-import { Card, EmptyState } from "@orbit/ui";
-import { AtSign, Bell } from "lucide-react";
+import { activitySeenAt, listActivity } from "@orbit/db";
+import { EmptyState } from "@orbit/ui";
+import { Bell } from "lucide-react";
 import type { Metadata } from "next";
-import { ComingSoon } from "@/components/coming-soon";
-import { PagePane, Panes } from "@/components/shell/panes";
+import { ActivityFeed } from "@/components/activity/activity-feed";
+import { Panes } from "@/components/shell/panes";
 import { requireWorkspace } from "@/server/context";
 
 export const metadata: Metadata = { title: "Activity" };
+export const dynamic = "force-dynamic";
 
 export default async function ActivityPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  await requireWorkspace(slug);
+  const { user, db } = await requireWorkspace(slug);
+  const [items, seenAt] = await Promise.all([listActivity(db, user.id), activitySeenAt(db, user.id)]);
 
   return (
     <Panes
-      list={
-        <PagePane title="Activity" subtitle="Mentions, replies and invites">
-          <Card>
-            <EmptyState icon={<Bell />} title="You're all caught up" description="New notifications will show up here." />
-          </Card>
-        </PagePane>
-      }
+      list={<ActivityFeed initialItems={items} seenAt={seenAt.toISOString()} />}
       detail={
-        <ComingSoon
-          icon={<AtSign />}
-          title="Notifications"
-          description="In-app notifications, browser push and an email digest for messages you missed."
-          phase={5}
-        />
+        <div className="flex h-full items-center justify-center">
+          <EmptyState
+            icon={<Bell />}
+            title="Your activity"
+            description="Mentions, replies to your messages and meeting invitations are collected here. Pick one to jump straight to it."
+          />
+        </div>
       }
     />
   );

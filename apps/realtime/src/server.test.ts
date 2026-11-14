@@ -1,6 +1,6 @@
 import type { AddressInfo } from "node:net";
 import { io as connect, type Socket } from "socket.io-client";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { HandshakeError, handshakeSchema, type Authenticator, type SocketIdentity } from "./auth";
 import { createRealtimeServer } from "./server";
 
@@ -101,5 +101,69 @@ describe("realtime tenant isolation", () => {
     second.disconnect();
     await settle();
     expect(events).toEqual(["erin"]);
+  });
+});
+
+describe("connection setup", () => {
+  async function serverWith(listChannelIds: () => Promise<string[]>) {
+    const extra = createRealtimeServer({ authenticate: fakeAuth, corsOrigin: "*", listChannelIds });
+    await new Promise<void>((resolve) => extra.http.listen(0, resolve));
+    const socket = connect(`http://localhost:${(extra.http.address() as AddressInfo).port}`, {
+      auth: { token: "zed@ws_z", workspaceId: "ws_z" },
+      transports: ["websocket"],
+      reconnection: false,
+      forceNew: true,
+    });
+    sockets.push(socket);
+    return { extra, socket };
+  }
+
+  it("answers an event sent the instant the socket connects, while its rooms are still loading", async () => {
+    const { extra, socket } = await serverWith(() => new Promise((resolve) => setTimeout(() => resolve([]), 300)));
+    const reply = await new Promise((resolve, reject) => {
+      socket.once("connect_error", reject);
+      socket.once("connect", () => {
+        // Not a valid message, so the handler answers without touching the database.
+        socket.timeout(2000).emit("message:send", {}, (error: Error | null, result: unknown) => (error ? reject(error) : resolve(result)));
+      });
+    });
+    expect(reply).toEqual({ ok: false, error: "That request was not valid." });
+    await extra.io.close();
+  });
+
+  it("drops a connection whose rooms cannot be loaded, without crashing the service", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { extra, socket } = await serverWith(async () => {
+      throw new Error("database is down");
+    });
+    const reason = await new Promise((resolve) => socket.once("disconnect", resolve));
+    expect(reason).toBe("io server disconnect");
+    expect(logged).toHaveBeenCalled();
+    logged.mockRestore();
+    await extra.io.close();
+  });
+});
+
+describe("membership sweep", () => {
+  it("disconnects sockets whose membership has ended and leaves the rest alone", async () => {
+    const { dropFormerMembers, membershipKey } = await import("./sweep");
+    const stays = await client({ token: "fay@ws_s", workspaceId: "ws_s" });
+    const removed = await client({ token: "gus@ws_s", workspaceId: "ws_s" });
+    const gone = new Promise((resolve) => removed.once("disconnect", resolve));
+
+    const dropped = await dropFormerMembers(io, async (pairs) => {
+      // Every membership still exists except gus's in ws_s.
+      return new Set(pairs.filter((p) => !(p.userId === "gus" && p.workspaceId === "ws_s")).map((p) => membershipKey(p.workspaceId, p.userId)));
+    });
+
+    expect(dropped).toBe(1);
+    expect(await gone).toBe("io server disconnect");
+    expect(stays.connected).toBe(true);
+    // The removed person no longer receives anything sent to the workspace.
+    const leaked: unknown[] = [];
+    removed.onAny((event) => leaked.push(event));
+    io.to("ws:ws_s").emit("presence:left", { userId: "someone" });
+    await settle();
+    expect(leaked).toEqual([]);
   });
 });

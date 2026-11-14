@@ -1,5 +1,6 @@
 import { Avatar, Card, ListRow, SectionLabel } from "@orbit/ui";
 import type { Metadata } from "next";
+import { AccountSettings } from "@/components/forms/account-settings";
 import { ProfileForm } from "@/components/forms/profile-form";
 import { BackLink, PagePane } from "@/components/shell/panes";
 import { requireWorkspace } from "@/server/context";
@@ -28,9 +29,12 @@ export default async function ProfilePage({ params }: { params: Promise<{ slug: 
         </Card>
       </section>
 
-      <p className="px-5 text-sm text-muted-foreground">
-        Your name, photo, password and two-factor authentication are managed in your account security settings.
-      </p>
+      <section>
+        <SectionLabel>Account</SectionLabel>
+        <Card className="p-5 md:shadow-none md:ring-1 md:ring-border">
+          <AccountSettings name={user.name} imageUrl={user.imageUrl} />
+        </Card>
+      </section>
     </PagePane>
   );
 }

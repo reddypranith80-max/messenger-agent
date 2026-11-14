@@ -6,7 +6,18 @@ import { prisma as defaultClient } from "./client";
  * that belongs to a workspace MUST be listed here; `tenant.test.ts` fails if a
  * model with a workspaceId field is missing.
  */
-export const TENANT_MODELS = ["Membership", "Invitation"] as const;
+export const TENANT_MODELS = [
+  "Membership",
+  "Invitation",
+  "Channel",
+  "ChannelMember",
+  "Message",
+  "Reaction",
+  "Meeting",
+  "MeetingInvitee",
+  "MeetingAdmission",
+  "Call",
+] as const;
 export type TenantModel = (typeof TENANT_MODELS)[number];
 
 const TENANT_MODEL_SET: ReadonlySet<string> = new Set(TENANT_MODELS);
@@ -138,6 +149,14 @@ export function tenantDb(workspaceId: string, client: PrismaClient = defaultClie
     workspaceId,
     membership: scoped.membership,
     invitation: scoped.invitation,
+    channel: scoped.channel,
+    channelMember: scoped.channelMember,
+    message: scoped.message,
+    reaction: scoped.reaction,
+    meeting: scoped.meeting,
+    meetingInvitee: scoped.meetingInvitee,
+    meetingAdmission: scoped.meetingAdmission,
+    call: scoped.call,
   };
 }
 

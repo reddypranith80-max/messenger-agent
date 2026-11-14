@@ -10,5 +10,9 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: { path: "prisma/migrations" },
   // `prisma generate` runs on install, before a database is configured.
-  datasource: { url: process.env.DATABASE_URL ?? "" },
+  datasource: {
+    url: process.env.DATABASE_URL ?? "",
+    // Optional. `prisma dev` keeps a clean shadow server next to the database; see .env.example.
+    ...(process.env.SHADOW_DATABASE_URL ? { shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL } : {}),
+  },
 });

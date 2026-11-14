@@ -1,6 +1,7 @@
 import { Avatar, Badge, Card, ListRow, RowList, SectionLabel } from "@orbit/ui";
-import { ROLE_LABEL } from "@orbit/db";
+import { ROLE_LABEL, can } from "@orbit/db";
 import type { Metadata } from "next";
+import { LeaveOrDeleteWorkspace, RenameWorkspaceForm } from "@/components/forms/workspace-settings";
 import { BackLink, PagePane } from "@/components/shell/panes";
 import { requireWorkspace } from "@/server/context";
 
@@ -47,7 +48,23 @@ export default async function WorkspaceSettingsPage({ params }: { params: Promis
         </Card>
       </section>
 
-      <p className="px-5 text-sm text-muted-foreground">Billing, usage limits and the audit log arrive in phase 7.</p>
+      {can(membership.role, "workspace:update") ? (
+        <section>
+          <SectionLabel>Name</SectionLabel>
+          <Card className="p-5 md:shadow-none md:ring-1 md:ring-border">
+            <RenameWorkspaceForm slug={slug} name={workspace.name} />
+          </Card>
+        </section>
+      ) : null}
+
+      <section>
+        <SectionLabel>{membership.role === "OWNER" ? "Danger zone" : "Membership"}</SectionLabel>
+        <Card className="p-5 md:shadow-none md:ring-1 md:ring-border">
+          <LeaveOrDeleteWorkspace slug={slug} name={workspace.name} isOwner={membership.role === "OWNER"} />
+        </Card>
+      </section>
+
+      <p className="px-5 text-sm text-muted-foreground">Billing, usage limits and the audit log are not part of this build yet.</p>
     </PagePane>
   );
 }

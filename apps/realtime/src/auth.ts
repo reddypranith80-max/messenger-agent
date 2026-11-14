@@ -34,7 +34,11 @@ export const authenticate: Authenticator = async (handshakeAuth) => {
 
   let clerkId: string;
   try {
-    const claims = await verifyToken(parsed.data.token, { secretKey });
+    // A development machine's clock can trail Clerk's by a few seconds; production keeps the 5s default.
+    const claims = await verifyToken(parsed.data.token, {
+      secretKey,
+      ...(process.env.NODE_ENV === "production" ? {} : { clockSkewInMs: 30_000 }),
+    });
     clerkId = claims.sub;
   } catch {
     throw new HandshakeError("unauthorized");

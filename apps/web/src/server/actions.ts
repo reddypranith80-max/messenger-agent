@@ -1,6 +1,6 @@
 "use server";
 
-import { clerkClient } from "@clerk/nextjs/server";
+import { clerkClient, currentUser } from "@clerk/nextjs/server";
 import { isClerkAPIResponseError } from "@clerk/nextjs/errors";
 import {
   PermissionError,
@@ -10,12 +10,13 @@ import {
   clerkRoleFor,
   invitableRoles,
   prisma,
+  removeMemberData,
 } from "@orbit/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireUser, requireWorkspace } from "./context";
-import { upsertMembership, upsertWorkspace } from "./sync";
+import { upsertMembership, upsertUser, upsertWorkspace } from "./sync";
 
 export type ActionState = { ok: boolean; message?: string; error?: string };
 
@@ -75,6 +76,72 @@ export async function updateProfile(_prev: ActionState, formData: FormData): Pro
   }
   revalidatePath("/w", "layout");
   return { ok: true, message: "Saved" };
+}
+
+/**
+ * Copy the signed-in person's name, email and photo from Clerk, where they are
+ * edited, into Orbit. Returns true when something changed.
+ */
+export async function syncAccount(): Promise<boolean> {
+  const user = await requireUser();
+  const clerkUser = await currentUser();
+  if (!clerkUser) return false;
+  const email = clerkUser.primaryEmailAddress?.emailAddress ?? clerkUser.emailAddresses[0]?.emailAddress ?? user.email;
+  const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || clerkUser.username || "";
+  const imageUrl = clerkUser.hasImage ? clerkUser.imageUrl : null;
+  const next = await upsertUser({ clerkId: user.clerkId, email, name, imageUrl });
+  const changed = next.name !== user.name || next.imageUrl !== user.imageUrl || next.email !== user.email;
+  if (changed) revalidatePath("/w", "layout");
+  return changed;
+}
+
+// ----------------------------------------------------------------- workspace
+
+export async function renameWorkspace(slug: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const { workspace, membership } = await requireWorkspace(slug);
+  try {
+    assertCan(membership.role, "workspace:update");
+    const name = workspaceName.parse(formData.get("name"));
+    if (name !== workspace.name) {
+      const clerk = await clerkClient();
+      await clerk.organizations.updateOrganization(workspace.clerkOrgId, { name });
+      // The address (slug) stays the same so existing links keep working.
+      await prisma.workspace.update({ where: { id: workspace.id }, data: { name } });
+    }
+  } catch (error) {
+    return failure(error, "Could not rename the workspace.");
+  }
+  revalidatePath(`/w/${slug}`, "layout");
+  return { ok: true, message: "Saved" };
+}
+
+export async function leaveWorkspace(slug: string): Promise<ActionState> {
+  const { user, workspace, membership, db } = await requireWorkspace(slug);
+  if (membership.role === "OWNER") return { ok: false, error: "The owner cannot leave. Delete the workspace instead." };
+  try {
+    const clerk = await clerkClient();
+    await clerk.organizations.deleteOrganizationMembership({ organizationId: workspace.clerkOrgId, userId: user.clerkId });
+    await db.membership.delete({ where: { id: membership.id } });
+    await removeMemberData(db, user.id);
+  } catch (error) {
+    return failure(error, "Could not leave the workspace.");
+  }
+  redirect("/app");
+}
+
+export async function deleteWorkspace(slug: string, confirmName: string): Promise<ActionState> {
+  const { workspace, membership } = await requireWorkspace(slug);
+  try {
+    assertCan(membership.role, "workspace:delete");
+    if (z.string().parse(confirmName).trim() !== workspace.name) return { ok: false, error: "Type the workspace name exactly to confirm." };
+    const clerk = await clerkClient();
+    await clerk.organizations.deleteOrganization(workspace.clerkOrgId);
+    // Everything in the workspace goes with it (channels, messages, meetings: all cascade).
+    await prisma.workspace.deleteMany({ where: { id: workspace.id } });
+  } catch (error) {
+    return failure(error, "Could not delete the workspace.");
+  }
+  redirect("/app");
 }
 
 // ------------------------------------------------------------------- members
@@ -180,6 +247,7 @@ export async function removeMember(slug: string, membershipId: string): Promise<
       userId: target.user.clerkId,
     });
     await db.membership.delete({ where: { id: target.id } });
+    await removeMemberData(db, target.userId);
   } catch (error) {
     return failure(error, "Could not remove the member.");
   }

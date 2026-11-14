@@ -5,7 +5,7 @@
  * as a fallback that needs no webhook, when a signed-in user enters the app.
  */
 import { clerkClient } from "@clerk/nextjs/server";
-import { Prisma, prisma, reconcileRole, slugify, tenantDb, type User, type Workspace } from "@orbit/db";
+import { Prisma, prisma, reconcileRole, removeMemberData, slugify, tenantDb, type User, type Workspace } from "@orbit/db";
 
 export type ClerkUserData = { clerkId: string; email: string; name: string; imageUrl?: string | null };
 export type ClerkOrgData = { clerkOrgId: string; name: string; imageUrl?: string | null; createdBy?: string | null };
@@ -112,7 +112,9 @@ export async function deleteMembership(clerkOrgId: string, clerkUserId: string):
     prisma.user.findUnique({ where: { clerkId: clerkUserId } }),
   ]);
   if (!workspace || !user) return;
-  await tenantDb(workspace.id).membership.deleteMany({ where: { userId: user.id } });
+  const db = tenantDb(workspace.id);
+  await db.membership.deleteMany({ where: { userId: user.id } });
+  await removeMemberData(db, user.id);
 }
 
 /**
@@ -144,9 +146,15 @@ export async function syncMembershipsForUser(user: User): Promise<Workspace[]> {
 
   // Remove memberships Clerk no longer has. Only trust a complete listing.
   if (data.length < 100) {
-    await prisma.membership.deleteMany({
+    const gone = await prisma.membership.findMany({
       where: { userId: user.id, workspaceId: { notIn: workspaces.map((w) => w.id) } },
+      select: { workspaceId: true },
     });
+    for (const { workspaceId } of gone) {
+      const db = tenantDb(workspaceId);
+      await db.membership.deleteMany({ where: { userId: user.id } });
+      await removeMemberData(db, user.id);
+    }
   }
   return workspaces;
 }

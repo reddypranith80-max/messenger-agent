@@ -47,8 +47,15 @@ model User {
   createdAt  DateTime       @default(now())
   updatedAt  DateTime       @updatedAt
 
-  memberships Membership[]
-  invitesSent Invitation[]
+  memberships        Membership[]
+  invitesSent        Invitation[]
+  channelMemberships ChannelMember[]
+  messages           Message[]
+  reactions          Reaction[]
+  meetingsHosted     Meeting[]
+  meetingInvites     MeetingInvitee[]
+  meetingAdmissions  MeetingAdmission[]
+  callsStarted       Call[]
 }
 
 /// A tenant. Mirrors a Clerk organization.
@@ -62,8 +69,16 @@ model Workspace {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  memberships Membership[]
-  invitations Invitation[]
+  memberships       Membership[]
+  invitations       Invitation[]
+  channels          Channel[]
+  channelMembers    ChannelMember[]
+  messages          Message[]
+  reactions         Reaction[]
+  meetings          Meeting[]
+  meetingInvitees   MeetingInvitee[]
+  meetingAdmissions MeetingAdmission[]
+  calls             Call[]
 }
 
 /// Tenant-scoped: every query must filter on workspaceId (see src/tenant.ts).
@@ -73,6 +88,8 @@ model Membership {
   userId            String
   role              Role     @default(MEMBER)
   clerkMembershipId String?  @unique
+  /// Activity (mentions, replies, invitations) at or before this time has been seen.
+  activitySeenAt    DateTime @default(now())
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -100,4 +117,174 @@ model Invitation {
 
   @@index([workspaceId, status])
   @@index([email])
+}
+
+enum ChannelKind {
+  CHANNEL
+  DM
+  GROUP
+}
+
+/// Tenant-scoped. A channel, a 1:1 direct message, or a group direct message.
+model Channel {
+  id            String      @id @default(cuid())
+  workspaceId   String
+  kind          ChannelKind @default(CHANNEL)
+  /// Null for direct messages.
+  name          String?
+  topic         String?
+  isPrivate     Boolean     @default(false)
+  /// Sorted member ids joined with ':' for DMs and group DMs, so the same people always reuse one conversation.
+  dmKey         String?
+  createdById   String?
+  lastMessageAt DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members   ChannelMember[]
+  messages  Message[]
+  calls     Call[]
+
+  @@unique([workspaceId, name])
+  @@unique([workspaceId, dmKey])
+  @@index([workspaceId, kind])
+}
+
+/// Tenant-scoped.
+model ChannelMember {
+  id          String   @id @default(cuid())
+  workspaceId String
+  channelId   String
+  userId      String
+  /// Everything at or before this time counts as read.
+  lastReadAt  DateTime @default(now())
+  joinedAt    DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel   Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@index([workspaceId, userId])
+}
+
+/// Tenant-scoped. A reply has parentId set to the thread's root message.
+model Message {
+  id          String    @id @default(cuid())
+  workspaceId String
+  channelId   String
+  authorId    String
+  parentId    String?
+  body        String
+  mentionIds  String[]
+  editedAt    DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel   Channel    @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent    Message?   @relation("Thread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Message[]  @relation("Thread")
+  reactions Reaction[]
+
+  @@index([channelId, parentId, createdAt])
+  @@index([parentId, createdAt])
+}
+
+/// Tenant-scoped.
+model Reaction {
+  id          String   @id @default(cuid())
+  workspaceId String
+  messageId   String
+  userId      String
+  emoji       String
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  message   Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+}
+
+enum AdmissionStatus {
+  WAITING
+  ADMITTED
+  DENIED
+}
+
+/// Tenant-scoped. A scheduled meeting; its video room is created on demand when the first person joins.
+model Meeting {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  hostId         String
+  title          String
+  description    String?
+  startsAt       DateTime
+  endsAt         DateTime
+  /// Public-looking but unguessable id used in join links: /join/<code>. Joining still requires a workspace account.
+  code           String    @unique
+  /// People who are not invited wait for the host to let them in.
+  lobbyEnabled   Boolean   @default(true)
+  cancelledAt    DateTime?
+  reminderSentAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  workspace  Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  host       User               @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  invitees   MeetingInvitee[]
+  admissions MeetingAdmission[]
+
+  @@index([workspaceId, startsAt])
+}
+
+/// Tenant-scoped.
+model MeetingInvitee {
+  id          String   @id @default(cuid())
+  workspaceId String
+  meetingId   String
+  userId      String
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  meeting   Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, userId])
+  @@index([workspaceId, userId])
+}
+
+/// Tenant-scoped. Lobby state for people who are not invited.
+model MeetingAdmission {
+  id          String          @id @default(cuid())
+  workspaceId String
+  meetingId   String
+  userId      String
+  status      AdmissionStatus @default(WAITING)
+  updatedAt   DateTime        @updatedAt
+  createdAt   DateTime        @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  meeting   Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, userId])
+}
+
+/// Tenant-scoped. One row each time someone starts a call in a conversation (the call history).
+model Call {
+  id          String   @id @default(cuid())
+  workspaceId String
+  channelId   String
+  startedById String
+  startedAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel   Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  startedBy User      @relation(fields: [startedById], references: [id], onDelete: Cascade)
+
+  @@index([channelId, startedAt])
+  @@index([workspaceId, startedAt])
 }
